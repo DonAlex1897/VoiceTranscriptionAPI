@@ -37,6 +37,8 @@ public class RealTimeTranscriptionService
             var audioBuffer = new List<byte>();
             var lastTranscriptionTime = DateTime.UtcNow;
             var transcriptionInterval = TimeSpan.FromSeconds(3); // Transcribe every 3 seconds
+            var isProcessing = false; // Prevent concurrent processing
+            var lastTranscriptText = string.Empty; // For deduplication
 
             // Handle incoming audio data from client
             var buffer = new byte[4096];
@@ -52,8 +54,9 @@ public class RealTimeTranscriptionService
                     audioBuffer.AddRange(audioData);
 
                     // Check if it's time to transcribe
-                    if (DateTime.UtcNow - lastTranscriptionTime >= transcriptionInterval && audioBuffer.Count > 0)
+                    if (DateTime.UtcNow - lastTranscriptionTime >= transcriptionInterval && audioBuffer.Count > 0 && !isProcessing)
                     {
+                        isProcessing = true;
                         _ = Task.Run(async () =>
                         {
                             try
@@ -66,8 +69,11 @@ public class RealTimeTranscriptionService
                                 var wavData = CreateWavFromPcm(audioToTranscribe, 16000, 1, 16);
                                 var transcript = await TranscribeAudioChunk(wavData);
                                 
-                                if (!string.IsNullOrWhiteSpace(transcript))
+                                // Only send if transcript is different from last one and not empty
+                                if (!string.IsNullOrWhiteSpace(transcript) && 
+                                    !transcript.Equals(lastTranscriptText, StringComparison.OrdinalIgnoreCase))
                                 {
+                                    lastTranscriptText = transcript;
                                     await SendTranscriptionResult(webSocket, new
                                     {
                                         type = "final",
@@ -79,6 +85,10 @@ public class RealTimeTranscriptionService
                             catch (Exception ex)
                             {
                                 _logger.LogError(ex, "Error in chunk transcription");
+                            }
+                            finally
+                            {
+                                isProcessing = false;
                             }
                         }, cancellationToken);
                     }
