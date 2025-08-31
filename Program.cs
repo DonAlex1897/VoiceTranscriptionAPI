@@ -40,8 +40,12 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// Enable WebSocket support
-app.UseWebSockets();
+// Enable WebSocket support with production-friendly options
+app.UseWebSockets(new WebSocketOptions
+{
+    KeepAliveInterval = TimeSpan.FromSeconds(120),
+    AllowedOrigins = { "*" } // This will be further restricted by CORS
+});
 
 // Use CORS
 app.UseCors("AllowFrontend");
